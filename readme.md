@@ -37,3 +37,27 @@ EfficientNetB0 has been used for the backbone model and the Dense layers are rem
 ```
 python test.py path/to/image.png
 ```
+
+### Edge Deployment (Client-side search)
+- Run the AI service with local Chroma (embedded): set `chroma_mode=local` and mount a volume at `/chroma` (compose already set).
+- Prepare a collection snapshot once from your central server:
+  - `python scripts/export_chroma.py --out ./chroma_snapshot --host <central_host> --port 8000 --collection yugioh_256`
+- Distribute `./chroma_snapshot` to each client server and import locally:
+  - `python scripts/import_chroma.py --in ./chroma_snapshot --mode local --path /chroma --collection yugioh_256 --reset`
+- After import, each client server performs vector search locally with no central dependency.
+
+#### Packaging + Integrity
+- Package snapshot to a single tar.gz with checksum:
+  - `python scripts/pack_snapshot.py --src ./chroma_snapshot --out ./dist --name yugioh_256_YYYYMMDD`
+  - Produces `./dist/yugioh_256_YYYYMMDD.tar.gz` and `.sha256`
+- Optionally verify and extract elsewhere:
+  - `python scripts/verify_and_extract.py --tgz ./dist/yugioh_256_YYYYMMDD.tar.gz --sha ./dist/yugioh_256_YYYYMMDD.sha256 --out ./verify --clean`
+
+#### Auto-import on Container Start (local mode)
+- Set environment variables (see docker-compose comments):
+  - `AUTO_IMPORT=1`
+  - `SNAPSHOT_TGZ=/chroma/snapshots/yugioh_256_YYYYMMDD.tar.gz`
+  - `SNAPSHOT_SHA256=/chroma/snapshots/yugioh_256_YYYYMMDD.sha256`
+  - optional: `IMPORT_ON_EMPTY=1` (default), `IMPORT_RESET=0`, `IMPORT_BATCH=1000`
+- Mount the snapshot directory read-only to `/chroma/snapshots`.
+- On startup, the container will verify (if SHA provided), import if needed, and mark the imported hash in `/chroma/.snapshot_hash` to avoid repeated imports.

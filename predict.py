@@ -27,19 +27,18 @@ def main():
     student_inputs = detector_preprocessing(student_inputs.copy())
     student_inputs = student_inputs[None, :]
 
-    student_model = Detector()
-    pre_model_dict = torch.load(args.model_path, map_location=torch.device("cpu"))
-    student_model.load_state_dict(pre_model_dict)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if not torch.cuda.is_available():
-        student_model = student_model.cuda()
-    student_model = student_model.to("cpu")
+    student_model = Detector()
+    pre_model_dict = torch.load(args.model_path, map_location="cpu")
+    student_model.load_state_dict(pre_model_dict)
+    student_model.to(device)
     student_model.eval()
 
     with torch.no_grad():
-        if not torch.cuda.is_available():
-            student_inputs = student_inputs.cuda()
-        student_inputs = student_inputs.to("cpu")
+        # if not torch.cuda.is_available():
+        #     student_inputs = student_inputs.cuda()
+        student_inputs = student_inputs.to(device)
         pred_det, pred_embed = student_model(student_inputs)
     input_shape = student_inputs.shape[2:4]
     det_results = student_model.postprocess(

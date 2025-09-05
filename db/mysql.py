@@ -1,3 +1,4 @@
+import os
 import pymysql
 from pymysql.err import OperationalError
 import dotenv
@@ -11,11 +12,12 @@ class MySQLConnection:
         self.try_connect()
 
     def try_connect(self):
-        host = config["host"]
-        port = config["mysql_port"]
-        user = config["mysql_user"]
-        passwd = config["mysql_passwd"]
-        db = config["mysql_db"]
+        # Prefer environment variables (e.g., from docker-compose), fallback to .env
+        host = os.getenv("host", config.get("host", "localhost"))
+        port = int(os.getenv("mysql_port", str(config.get("mysql_port", "3306"))))
+        user = os.getenv("mysql_user", config.get("mysql_user", "root"))
+        passwd = os.getenv("mysql_passwd", config.get("mysql_passwd", ""))
+        db = os.getenv("mysql_db", config.get("mysql_db", ""))
         self.conn = pymysql.connect(
             host=host, port=int(port), user=user, passwd=passwd, db=db
         )

@@ -1,4 +1,5 @@
 from typing import List
+import os
 
 import chromadb
 import dotenv
@@ -9,10 +10,19 @@ config = dotenv.dotenv_values(".env")
 
 class ChromaDBConnection:
     def __init__(self):
-        host = config["host"]
-        port = config["chroma_port"]
-        collection_name = config["chroma_collection"]
-        self.client = chromadb.HttpClient(host, port)
+        # Mode: 'http' connects to remote chroma server, 'local' uses embedded persistent client
+        mode = os.getenv("chroma_mode", config.get("chroma_mode", "local")).lower()
+        collection_name = os.getenv("chroma_collection", config.get("chroma_collection", "cards"))
+
+        if mode == "http":
+            host = os.getenv("host", config.get("host", "localhost"))
+            port = int(os.getenv("chroma_port", str(config.get("chroma_port", "8000"))))
+            self.client = chromadb.HttpClient(host, port)
+        else:
+            path = os.getenv("chroma_path", config.get("chroma_path", "/chroma"))
+            # Use an embedded persistent client so each client server can run locally without external service
+            self.client = chromadb.PersistentClient(path=path)
+
         self.collection = self.client.get_or_create_collection(
             name=collection_name, metadata={"hnsw:space": "cosine"}
         )

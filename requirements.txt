@@ -1,0 +1,9 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.7.4
+
+torch            # CUDA 환경에 맞춰 설치 (도커 빌드 시 버전 지정 권장)
+opencv-python-headless
+numpy
+
+chromadb==0.5.3

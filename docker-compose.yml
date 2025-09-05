@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  ai:
+    build: .
+    image: yugioh-ai:latest
+    container_name: yugioh-ai
+    # Load defaults from .env and allow overrides here
+    env_file:
+      - .env
+    environment:
+      - MODEL_PATH=/app/best.pt
+      - INPUT_SIZE=640
+      - TOP_K=5
+      # Run vector search locally inside the AI container (edge mode)
+      - chroma_mode=local
+      - chroma_path=/chroma
+      # db module uses lowercase keys (dotenv style)
+      - host=chromadb         # used only if chroma_mode=http
+      - chroma_port=8000      # used only if chroma_mode=http
+      - chroma_collection=yugioh_256
+      # Optional auto-import on startup (local mode)
+      - AUTO_IMPORT=1
+      - SNAPSHOT_TGZ=/chroma/snapshots/yugioh_256_20240901.tar.gz
+      - SNAPSHOT_SHA256=/chroma/snapshots/yugioh_256_20240901.sha256
+      - IMPORT_ON_EMPTY=1
+      - IMPORT_RESET=0
+      - IMPORT_BATCH=1000
+      - mysql_port=3306
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma:/chroma
+      # mount snapshot dir if using AUTO_IMPORT
+      - ./snapshots:/chroma/snapshots:ro
+    # depends_on is required only if chroma_mode=http
+    # depends_on:
+    #   - chromadb
+
+  # Optional: run a ChromaDB server the model can query
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "8001:8000"
+    environment:
+      - ALLOW_RESET=true
+    volumes:
+      - chroma:/chroma
+
+  # Example Spring Boot service co-deployed with the AI service.
+  # Replace the build context with your actual Spring project path.
+  spring:
+    # build:
+    #   context: ../your-spring-boot-project
+    #   dockerfile: Dockerfile
+    image: your-spring-app:latest
+    container_name: spring-app
+    environment:
+      - AI_BASE_URL=http://ai:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ai
+
+volumes:
+  chroma:
