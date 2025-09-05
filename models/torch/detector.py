@@ -1,7 +1,5 @@
 from typing import List
 
-import tensorflow as tf
-
 import torch
 import torch.nn as nn
 from ultralytics.nn.modules import conv, block
@@ -10,12 +8,20 @@ from ultralytics.utils.tal import make_anchors
 from ultralytics.utils.ops import scale_boxes
 
 from utils import head, ops
-from data.preprocess.tf import EmbeddingPreprocessor
 from structures import DetectionResult
 
 
 class YoloDetector:
+    """Optional detector that depends on TensorFlow. Imports are deferred
+    so projects that only use the Torch path don't require tensorflow.
+    """
+
     def __init__(self, model_path):
+        # Lazy imports to avoid hard tensorflow dependency at module import time
+        from data.preprocess.tf import EmbeddingPreprocessor  # type: ignore
+        import tensorflow as tf  # type: ignore
+
+        self.tf = tf
         self.model = YOLO(model_path)
         self.preprocessor = EmbeddingPreprocessor()
 
@@ -31,7 +37,7 @@ class YoloDetector:
 
         for i in range(len(cropped)):
             cropped[i] = self.preprocessor(cropped[i])
-        cropped = tf.stack(cropped)
+        cropped = self.tf.stack(cropped)
         return cropped
 
 

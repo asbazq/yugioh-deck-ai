@@ -19,11 +19,7 @@ deckTest.png
 girl.webp
 weights/
 datasets/
-data/
-fonts/
 loss/
-structures/
 utils/__pycache__
 models/__pycache__
 embedding/
-
