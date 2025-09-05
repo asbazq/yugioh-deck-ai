@@ -7,3 +7,7 @@ opencv-python-headless
 numpy
 
 chromadb==0.5.3
+python-dotenv    # .env 로드 (db/chroma_db.py, server.py 등)
+PyMySQL          # MySQL 사용 및 모듈 임포트 시 필요 (db/mysql.py)
+# 권장: Chroma의 HNSW 인덱싱 백엔드. 보통 chromadb가 함께 설치하지만 누락 시 명시 설치
+hnswlib>=0.7.0
