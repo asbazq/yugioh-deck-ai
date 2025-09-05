@@ -31,8 +31,13 @@ import dotenv
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True, help="Output directory for snapshot")
+    parser.add_argument("--mode", choices=["http", "local"], help="Read from HTTP server or local persistent path")
+    # HTTP mode
     parser.add_argument("--host", help="Chroma HTTP host")
     parser.add_argument("--port", type=int, help="Chroma HTTP port")
+    # Local mode
+    parser.add_argument("--path", help="Persistent path for local Chroma (e.g., /chroma)")
+    # Common
     parser.add_argument("--collection", help="Collection name")
     parser.add_argument("--batch", type=int, default=1000, help="Batch size for paging")
     return parser.parse_args()
@@ -49,18 +54,36 @@ def main() -> None:
     dotenv.load_dotenv(".env")
     args = parse_args()
 
+    mode = (args.mode or getenv("chroma_mode", "http")).lower()
     host = args.host or getenv("host", "localhost")
     port = args.port or int(getenv("chroma_port", "8000"))
     collection_name = args.collection or getenv("chroma_collection", "cards")
+    local_path = args.path or getenv("chroma_path", "/chroma")
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    client = chromadb.HttpClient(host=host, port=port)
-    col = client.get_or_create_collection(collection_name)
+    if mode == "local":
+        client = chromadb.PersistentClient(path=local_path)
+        col = client.get_or_create_collection(collection_name)
+        origin = f"local:{local_path}"
+    else:
+        client = chromadb.HttpClient(host=host, port=port)
+        # Older/variant Chroma servers can 500 on create; prefer fetching existing.
+        try:
+            col = client.get_collection(collection_name)
+        except Exception as e:
+            # Show available collections to help diagnose name/tenancy issues
+            try:
+                names = [c.name for c in client.list_collections()]
+                print(f"[export] Collection '{collection_name}' not found. Available: {names}")
+            except Exception:
+                pass
+            raise
+        origin = f"http:{host}:{port}"
 
     total = col.count()
-    print(f"Exporting collection '{collection_name}' from {host}:{port} (count={total})")
+    print(f"Exporting collection '{collection_name}' from {origin} (count={total})")
 
     all_ids: List[str] = []
     all_metas: List[dict] = []
@@ -69,7 +92,8 @@ def main() -> None:
     offset = 0
     batch = int(args.batch)
     while offset < total:
-        got = col.get(include=["ids", "metadatas", "embeddings"], limit=batch, offset=offset)
+        # 'ids' are always returned; include controls optional fields
+        got = col.get(include=["metadatas", "embeddings"], limit=batch, offset=offset)
         ids = got.get("ids") or []
         metas = got.get("metadatas") or []
         embs = got.get("embeddings") or []
@@ -103,4 +127,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -12,3 +12,5 @@ PyMySQL          # MySQL 사용 및 모듈 임포트 시 필요 (db/mysql.py)
 # 권장: Chroma의 HNSW 인덱싱 백엔드. 보통 chromadb가 함께 설치하지만 누락 시 명시 설치
 hnswlib>=0.7.0
 Pillow           # structures.DetectionResult에서 이미지/폰트 렌더링에 사용
+ultralytics==8.2.82  # models/torch/detector.py에서 conv/block 모듈 사용
+python-multipart  # FastAPI UploadFile/Form 처리

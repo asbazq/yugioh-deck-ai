@@ -14,6 +14,7 @@ class ChromaDBConnection:
         mode = os.getenv("chroma_mode", config.get("chroma_mode", "local")).lower()
         collection_name = os.getenv("chroma_collection", config.get("chroma_collection", "cards"))
 
+        self._mode = mode
         if mode == "http":
             host = os.getenv("host", config.get("host", "localhost"))
             port = int(os.getenv("chroma_port", str(config.get("chroma_port", "8000"))))
@@ -57,5 +58,46 @@ class ChromaDBConnection:
         return self.collection.add(ids=ids, metadatas=metadata, embeddings=embeds)
 
     def search_by_embed(self, embed, n_result=1):
-        result = self.collection.query(query_embeddings=[embed], n_results=n_result)
-        return result["metadatas"]
+        """Query by embedding and return normalized metadatas.
+        Always request metadatas, and avoid empty filters. For HTTP servers that
+        validate filters strictly, add a harmless where_document.
+        """
+        if self._mode == "http":
+            try:
+                result = self.collection.query(
+                    query_embeddings=[embed],
+                    n_results=n_result,
+                    include=["metadatas"],
+                    where_document={"$not_contains": "\u0000"},
+                )
+            except Exception:
+                result = self.collection.query(
+                    query_embeddings=[embed],
+                    n_results=n_result,
+                    include=["metadatas"],
+                    where={"id": {"$gte": -1}},
+                    where_document={"$not_contains": "\u0000"},
+                )
+        else:
+            # Local persistent client usually doesn't require any filter
+            result = self.collection.query(
+                query_embeddings=[embed],
+                n_results=n_result,
+                include=["metadatas"],
+            )
+
+        raw = result.get("metadatas", []) or []
+        normalized = []
+        for items in raw:
+            norm_items = []
+            for m in items or []:
+                m = m or {}
+                idv = m.get("id") if m.get("id") is not None else m.get("ygopro_id")
+                name = m.get("name") or m.get("kor_name") or ""
+                # keep original fields but ensure id/name keys exist
+                out = {**m}
+                out.setdefault("id", idv)
+                out.setdefault("name", name)
+                norm_items.append(out)
+            normalized.append(norm_items)
+        return normalized
