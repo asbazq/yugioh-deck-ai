@@ -45,6 +45,7 @@ def main():
         pred_det, pred_embed, input_shape, origin_img[None, :]
     )
 
+
     for i, det in enumerate(det_results):
         card_names = []
         card_ids = []
@@ -59,6 +60,7 @@ def main():
         det.save(f"res_{i}.png")
         print(card_names)
     print(time.time() - start)
+
 
 
 if __name__ == "__main__":

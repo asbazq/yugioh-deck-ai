@@ -212,3 +212,5 @@ embedding/weights/epoch*
 !datasets/test.csv
 !datasets/card_id_list.pickle
 *.pt
+image.webp
+res_0.png
