@@ -1,0 +1,9 @@
+# Lightweight API/snapshot tests use a fake inference runtime, without GPU weights or Chroma.
+fastapi==0.115.0
+pydantic==2.7.4
+numpy==1.26.4
+Pillow
+python-dotenv
+python-multipart
+httpx==0.27.2
+pytest>=8,<10

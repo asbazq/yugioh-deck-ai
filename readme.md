@@ -39,10 +39,54 @@ Implemented zoom-in and zoom-out augmentation to make low pixel resolution of tr
 EfficientNetB0 has been used for the backbone model and the Dense layers are removed. To train the model, the contrastive loss is used for the loss function. In each step, the model gets 3 inputs, the original image, positive image, and negative image. The original image is an input image with augmentation. The positive image is also same as the input image but different augmentation value. The negative image is a different image from the input image. In the first 5 epochs, the negative image is selected randomly from the dataset. After 5 epochs, choose the most difficult negative-positive image pairs in every step. To select a difficult pair, every epoch the model makes vectors of cards and picks a minimum distance from negative samples. Euclidean distance is used for measuring distance.
 
 
-### Demo
+### Inference service
+
+Use Python 3.11 and install `requirements.txt` in a virtual environment. Set
+`MODEL_PATH` to the trained **distilled Detector state dictionary** (`best.pt`).
+That checkpoint is not included in this repository; `weights/yolov8n_detector.pt`
+is not an interchangeable checkpoint for this model.
+
+```bash
+MODEL_PATH=/absolute/path/to/best.pt chroma_mode=local chroma_path=./chroma \
+  uvicorn server:app --host 0.0.0.0 --port 8000
 ```
-python test.py path/to/image.png
+
+The model and Chroma client load during application startup. Startup fails if they
+cannot load. `/health` reports readiness after initialization; it is not a live
+Chroma connectivity check. Synchronous inference and vector searches run in the
+worker pool, keeping the event loop responsive. Each process allows one model
+inference at a time and returns **503 + Retry-After: 1** when busy. More Uvicorn
+workers load additional model copies, so size worker count for GPU memory.
+
+Existing `/predict`, `/predict_embeds`, and `/search_embeds` response structures
+are retained. Invalid images return 400, oversized images 413, invalid request
+schemas 422, and embedding dimension/version mismatches 400. Internal failures
+are logged server-side without exposing exception details in responses.
+
+- `MAX_UPLOAD_BYTES`: decoded multipart file read limit, default 10 MiB. Apply a
+  request-body limit at the ingress too, since multipart parsing precedes the handler.
+- `MAX_IMAGE_PIXELS`: maximum width × height before RGB conversion, default 20 million.
+- Embedding requests: 1–128 vectors, 1–4096 finite components per vector,
+  consistent dimensions, nonzero vectors, and `top_k` between 1 and 100.
+- `EMBED_DIM` and `EMBED_MODEL_VERSION` optionally enforce the deployed model contract.
+- The public CORS configuration permits origins without cookie credentials.
+
+### Regression tests
+
+```bash
+python3.11 -m venv .venv-test
+.venv-test/bin/pip install -r requirements-test.txt
+.venv-test/bin/python -m pytest -q
 ```
+
+Run this suite on Linux (or WSL); snapshot imports and continuous evaluation use
+POSIX file locks. GitHub Actions runs the same suite for pull requests and master.
+These tests use real FastAPI request handling, image decoding, and snapshot files,
+with fake model/Chroma adapters. They do not measure recognition accuracy or
+validate GPU execution / a live Chroma deployment. `pytest.ini` keeps training
+scripts such as `test_distillation.py` and the separate `tests/ml` suite out of
+lightweight test discovery. With training dependencies installed, run the latter
+explicitly using `python -m unittest discover -s tests/ml -v`.
 
 ### Edge Deployment (Client-side search)
 - Run the AI service with local Chroma (embedded): set `chroma_mode=local` and mount a volume at `/chroma` (compose already set).
@@ -66,4 +110,8 @@ python test.py path/to/image.png
   - `SNAPSHOT_SHA256=/chroma/snapshots/yugioh_256_YYYYMMDD.sha256`
   - optional: `IMPORT_ON_EMPTY=1` (default), `IMPORT_RESET=0`, `IMPORT_BATCH=1000`
 - Mount the snapshot directory read-only to `/chroma/snapshots`.
-- On startup, the container will verify (if SHA provided), import if needed, and mark the imported hash in `/chroma/.snapshot_hash` to avoid repeated imports.
+- On startup, the container compares the actual archive checksum (if SHA is configured), validates data before resetting a collection, and records collection-specific `.snapshot_hash_<key>` files after success. A `.snapshot_pending_<key>` marker lets an interrupted import resume with idempotent upserts, including when `IMPORT_ON_EMPTY=1`.
+- Configured missing snapshots/checksums, checksum mismatch, invalid data, and import failures stop startup. Set `AUTO_IMPORT=0` explicitly when no automatic import is wanted.
+- Archives must match `pack_snapshot.py`: exactly three regular root files (`ids.json`, `metadatas.json`, `embeddings.npy`), at most 2 GiB unpacked. Links, extra paths, duplicate entries and special files are rejected.
+- Validation catches empty/duplicate IDs, inconsistent lengths, malformed embedding dimensions and nonfinite values before a reset. A reset is not a database transaction: an operational failure after reset can leave a partial collection; restart with the same snapshot to resume. Manual imports also use upsert and can be rerun.
+- Legacy `.snapshot_hash` markers are not reused for other collections. An existing nonempty collection remains untouched with `IMPORT_ON_EMPTY=1`; use `IMPORT_RESET=1` only when an intentional replacement is required.

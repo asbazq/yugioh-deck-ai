@@ -10,10 +10,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import hashlib
-import shutil
-import tarfile
 from pathlib import Path
+
+try:
+    from .snapshot_utils import verify_checksum, extract_snapshot
+except ImportError:
+    from snapshot_utils import verify_checksum, extract_snapshot
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,14 +25,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out", required=True, help="Directory to extract to")
     p.add_argument("--clean", action="store_true", help="Clean output directory before extracting")
     return p.parse_args()
-
-
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def main() -> None:
@@ -44,20 +38,10 @@ def main() -> None:
     if not sha.exists():
         raise FileNotFoundError(sha)
 
-    expected = sha.read_text(encoding="utf-8").strip().split()[0]
-    got = sha256_file(tgz)
-    if got != expected:
-        raise RuntimeError(f"Checksum mismatch: expected {expected}, got {got}")
-
-    if args.clean and out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True, exist_ok=True)
-
-    with tarfile.open(tgz, "r:gz") as tar:
-        tar.extractall(out)
+    verify_checksum(tgz, sha)
+    extract_snapshot(tgz, out, clean=args.clean)
     print(f"Extracted to {out}")
 
 
 if __name__ == "__main__":
     main()
-
