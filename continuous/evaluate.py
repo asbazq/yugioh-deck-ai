@@ -66,23 +66,28 @@ def validate_report(report):
 
 async def evaluate(samples):
     # Import after MODEL_PATH is set; use exactly the deployed preprocessing/search.
-    from fastapi import UploadFile
+    from fastapi import Request, UploadFile
+    from starlette.concurrency import run_in_threadpool
     from starlette.datastructures import Headers
-    from server import chroma, predict
+    from server import TorchRuntime, create_app
 
-    if chroma.collection.count() == 0:
-        raise ValueError("Evaluation requires a populated production vector collection")
-
+    application = create_app(TorchRuntime)
     predicted = []
-    for path, _ in samples:
-        content_type = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                        ".png": "image/png", ".webp": "image/webp"}[path.suffix.lower()]
-        with path.open("rb") as stream:
-            result = await predict(UploadFile(
-                file=stream, filename=path.name,
-                headers=Headers({"content-type": content_type}),
-            ))
-        predicted.append([d.best.id for d in result.detections])
+    async with application.router.lifespan_context(application):
+        count = await run_in_threadpool(application.state.runtime.chroma.collection.count)
+        if count == 0:
+            raise ValueError("Evaluation requires a populated production vector collection")
+        predict = next(route.endpoint for route in application.routes if route.path == "/predict")
+        request = Request({"type": "http", "app": application})
+        for path, _ in samples:
+            content_type = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                            ".png": "image/png", ".webp": "image/webp"}[path.suffix.lower()]
+            with path.open("rb") as stream:
+                result = await run_in_threadpool(predict, request, UploadFile(
+                    file=stream, filename=path.name,
+                    headers=Headers({"content-type": content_type}),
+                ))
+            predicted.append([d.best.id for d in result.detections])
     return predicted
 
 

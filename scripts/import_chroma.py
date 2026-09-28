@@ -25,11 +25,13 @@ import os
 import uuid
 import fcntl
 from pathlib import Path
-from typing import List
 
-import numpy as np
-import chromadb
 import dotenv
+
+try:
+    from .snapshot_utils import load_snapshot
+except ImportError:
+    from snapshot_utils import load_snapshot
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,13 +60,17 @@ def getenv(key: str, default: str | None = None) -> str | None:
 def main() -> None:
     dotenv.load_dotenv(".env")
     args = parse_args()
+    if args.batch < 1:
+        raise ValueError("--batch must be positive")
+    # Validate before marking the index pending or touching the database.
+    snapshot = load_snapshot(Path(args.src))
     root = Path(args.state_dir).resolve()
     root.mkdir(parents=True, exist_ok=True)
     with (root / "cycle.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         marker = root / "external-index.json"
         write_revision(marker, pending=True)
-        import_snapshot(args)
+        import_snapshot(args, snapshot)
         write_revision(marker, pending=False)
 
 
@@ -74,7 +80,10 @@ def write_revision(path, *, pending):
     temporary.replace(path)
 
 
-def import_snapshot(args):
+def import_snapshot(args, snapshot):
+    import chromadb
+
+    ids, metas, embeds = snapshot
     mode = (args.mode or getenv("chroma_mode", "local")).lower()
     collection_name = args.collection or getenv("chroma_collection", "cards")
 
@@ -88,28 +97,17 @@ def import_snapshot(args):
         client = chromadb.PersistentClient(path=path)
 
     # (Re)create collection
-    if args.reset:
-        try:
-            client.delete_collection(collection_name)
-        except Exception:
-            pass
     col = client.get_or_create_collection(collection_name, metadata={"hnsw:space": "cosine"})
-
-    # Load snapshot
-    src = Path(args.src)
-    ids: List[str] = json.loads((src / "ids.json").read_text(encoding="utf-8"))
-    metas: List[dict] = json.loads((src / "metadatas.json").read_text(encoding="utf-8"))
-    embeds: np.ndarray = np.load(src / "embeddings.npy")
-
-    if embeds.shape[0] != len(ids) or len(ids) != len(metas):
-        raise RuntimeError("Snapshot parts have different lengths")
+    if args.reset:
+        client.delete_collection(collection_name)
+        col = client.get_or_create_collection(collection_name, metadata={"hnsw:space": "cosine"})
 
     # Import in batches
     n = len(ids)
     bsz = int(args.batch)
     for off in range(0, n, bsz):
         sl = slice(off, min(off + bsz, n))
-        col.add(ids=ids[sl], metadatas=metas[sl], embeddings=embeds[sl].tolist())
+        col.upsert(ids=ids[sl], metadatas=metas[sl], embeddings=embeds[sl].tolist())
         print(f"Imported {min(off+bsz, n)}/{n}")
 
     print("Done.")
@@ -117,4 +115,3 @@ def import_snapshot(args):
 
 if __name__ == "__main__":
     main()
-
